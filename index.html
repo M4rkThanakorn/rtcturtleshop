@@ -13,13 +13,29 @@
   </header>
 
   <main class="max-w-4xl mx-auto m-4 p-4 bg-white rounded-xl shadow">
+    <!-- Summary Dashboard Cards -->
+    <div id="summary-cards" class="grid grid-cols-3 gap-2 mb-4 text-center">
+      <div class="bg-amber-50 border border-amber-200 p-3 rounded-lg">
+        <p class="text-xs text-amber-800 font-semibold">ต้องติด RTC</p>
+        <p id="stat-rtc-qty" class="text-xl font-bold text-amber-600">0 <span class="text-xs font-normal">ชิ้น</span></p>
+      </div>
+      <div class="bg-red-50 border border-red-200 p-3 rounded-lg">
+        <p class="text-xs text-red-800 font-semibold">หมดอายุแล้ว</p>
+        <p id="stat-expired-qty" class="text-xl font-bold text-red-600">0 <span class="text-xs font-normal">ชิ้น</span></p>
+      </div>
+      <div class="bg-emerald-50 border border-emerald-200 p-3 rounded-lg">
+        <p class="text-xs text-emerald-800 font-semibold">รวมทั้งหมด</p>
+        <p id="stat-total-qty" class="text-xl font-bold text-emerald-600">0 <span class="text-xs font-normal">ชิ้น</span></p>
+      </div>
+    </div>
+
     <!-- Tab Navigation -->
     <div class="flex border-b mb-4 overflow-x-auto">
-      <button onclick="switchTab('add-product')" class="tab-btn px-4 py-2 font-medium border-b-2 border-emerald-600 text-emerald-600">1. เพิ่มสินค้าหลัก</button>
-      <button onclick="switchTab('add-rtc')" class="tab-btn px-4 py-2 font-medium text-slate-500">2. ทำ RTC</button>
-      <button onclick="switchTab('view-rtc')" class="tab-btn px-4 py-2 font-medium text-slate-500">3. รายการ RTC ทั้งหมด</button>
-      <button onclick="switchTab('report-rtc')" class="tab-btn px-4 py-2 font-medium text-slate-500">4. รายงานประจำวัน/เดือน</button>
-      <button onclick="switchTab('view-expired')" class="tab-btn px-4 py-2 font-medium text-slate-500">5. สินค้าหมดอายุ</button>
+      <button onclick="switchTab('add-product')" class="tab-btn px-4 py-2 font-medium border-b-2 border-emerald-600 text-emerald-600 whitespace-nowrap">1. เพิ่มสินค้าหลัก</button>
+      <button onclick="switchTab('add-rtc')" class="tab-btn px-4 py-2 font-medium text-slate-500 whitespace-nowrap">2. ทำ RTC</button>
+      <button onclick="switchTab('view-rtc')" class="tab-btn px-4 py-2 font-medium text-slate-500 whitespace-nowrap">3. รายการ RTC ทั้งหมด</button>
+      <button onclick="switchTab('report-rtc')" class="tab-btn px-4 py-2 font-medium text-slate-500 whitespace-nowrap">4. รายงานประจำวัน/เดือน</button>
+      <button onclick="switchTab('view-expired')" class="tab-btn px-4 py-2 font-medium text-slate-500 whitespace-nowrap">5. สินค้าหมดอายุ</button>
     </div>
 
     <!-- 1. Form เพิ่มสินค้าหลัก -->
@@ -76,9 +92,12 @@
 
     <!-- 3. ดูรายการ RTC ทั้งหมด -->
     <section id="view-rtc" class="tab-content hidden">
-      <div class="flex justify-between items-center mb-4">
-        <h2 class="text-lg font-bold">รายการ RTC ทั้งหมด (เรียงตามวันหมดอายุใกล้สุด)</h2>
-        <button onclick="loadRTCData()" class="text-sm bg-slate-200 px-3 py-1 rounded">🔄 รีเฟรช</button>
+      <div class="flex flex-col md:flex-row justify-between items-center gap-2 mb-4">
+        <h2 class="text-lg font-bold">รายการ RTC ทั้งหมด</h2>
+        <div class="flex gap-2 w-full md:w-auto">
+          <input type="text" id="search-input" oninput="filterRTCData()" placeholder="🔍 ค้นชื่อหรือบาร์โค้ด..." class="border p-2 rounded text-sm flex-1 md:w-64">
+          <button onclick="loadRTCData()" class="text-sm bg-slate-200 px-3 py-1 rounded whitespace-nowrap">🔄 รีเฟรช</button>
+        </div>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-left border-collapse border">
@@ -111,10 +130,11 @@
   </main>
 
   <script>
-    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxUF4nH9h9euTZjjomiOZegtIQtB2s2gq7arlWLSODU_f2mfEkThjc0Kort1vv7TidJ/exec"; // วาง URL Web App จาก Apps Script
+    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzz6giWYQFMO5xq2O8q0LPaP4H_Fr8hLujWKcpKUiSkHVa7-N5EVAjpGrf0gkM-_cXa/exec"; // วาง URL Web App จาก Apps Script
 
     let currentProduct = null;
     let html5QrcodeScanner = null;
+    let rawRTCItems = [];
 
     function switchTab(tabId) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
@@ -178,11 +198,25 @@
       const data = await res.json();
       if(data.status !== "success") return;
 
-      const items = data.items;
-      
+      rawRTCItems = data.items;
+      updateDashboardStats(rawRTCItems);
+      renderAllTabs(rawRTCItems);
+    }
+
+    function updateDashboardStats(items) {
+      const totalQty = items.reduce((sum, i) => sum + i.quantity, 0);
+      const expiredQty = items.filter(i => i.status === 'EXPIRED').reduce((sum, i) => sum + i.quantity, 0);
+      const rtcQty = items.filter(i => i.status === 'RTC_30' || i.status === 'RTC_50').reduce((sum, i) => sum + i.quantity, 0);
+
+      document.getElementById('stat-total-qty').innerText = `${totalQty} ชิ้น`;
+      document.getElementById('stat-expired-qty').innerText = `${expiredQty} ชิ้น`;
+      document.getElementById('stat-rtc-qty').innerText = `${rtcQty} ชิ้น`;
+    }
+
+    function renderAllTabs(items) {
       // Render Table (Tab 3)
       const tbody = document.getElementById('rtc-table-body');
-      tbody.innerHTML = items.map(i => `
+      tbody.innerHTML = items.length === 0 ? '<tr><td colspan="6" class="p-4 text-center text-slate-500">ไม่พบรายการข้อมูล</td></tr>' : items.map(i => `
         <tr class="border-b">
           <td class="p-2 border">${i.barcode}</td>
           <td class="p-2 border">${i.name}</td>
@@ -195,7 +229,7 @@
 
       // Render Report (Tab 4)
       const actionItems = items.filter(i => i.status === 'RTC_30' || i.status === 'RTC_50');
-      document.getElementById('report-container').innerHTML = actionItems.length === 0 ? '<p>ไม่มีสินค้าต้องทำ RTC ในขณะนี้</p>' : actionItems.map(i => `
+      document.getElementById('report-container').innerHTML = actionItems.length === 0 ? '<p class="text-slate-500">ไม่มีสินค้าต้องทำ RTC ในขณะนี้</p>' : actionItems.map(i => `
         <div class="p-4 border rounded bg-amber-50 flex justify-between items-center">
           <div>
             <p class="font-bold text-lg">${i.name} (${i.barcode})</p>
@@ -216,6 +250,19 @@
           <button onclick="deleteRTCItem('${i.id}')" class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700">ลบออกจากระบบ</button>
         </div>
       `).join('');
+    }
+
+    function filterRTCData() {
+      const keyword = document.getElementById('search-input').value.toLowerCase().trim();
+      if(!keyword) {
+        renderAllTabs(rawRTCItems);
+        return;
+      }
+      const filtered = rawRTCItems.filter(i => 
+        String(i.name).toLowerCase().includes(keyword) || 
+        String(i.barcode).toLowerCase().includes(keyword)
+      );
+      renderAllTabs(filtered);
     }
 
     async function deleteRTCItem(id) {
@@ -246,6 +293,9 @@
         });
       }
     }
+
+    // โหลดข้อมูลอัตโนมัติเมื่อเปิดหน้าเว็บครั้งแรก
+    document.addEventListener('DOMContentLoaded', loadRTCData);
   </script>
 </body>
 </html>
