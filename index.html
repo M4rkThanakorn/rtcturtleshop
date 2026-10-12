@@ -125,7 +125,7 @@
               <th class="p-2 border text-center">จำนวน</th>
               <th class="p-2 border">วันหมดอายุ</th>
               <th class="p-2 border">เหลือ (วัน)</th>
-              <th class="p-2 border">สถานะ</th>
+              <th class="p-2 border">สถานะ / การจัดการ</th>
             </tr>
           </thead>
           <tbody id="rtc-table-body"></tbody>
@@ -150,7 +150,7 @@
   </main>
 
   <script>
-    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxflGpNlCqGuQEsTOSXZAaMeF-OQmyGIzpPGRIpkfsKvDtVyFW9HnolFrPVNXS9BBqH/exec";
+    const GAS_WEB_APP_URL = "ใส่_URL_Google_Apps_Script_ของคุณตรงนี้";
 
     let currentProduct = null;
     let html5QrcodeScanner = null;
@@ -172,15 +172,9 @@
       } catch(e) {}
     }
 
-    // ==========================================
-    // Local-First Data Sync
-    // ==========================================
     function initAllData() {
-      // โหลดข้อมูลเก่าจากเครื่องขึ้นมาแสดงผลทันที 0 วินาที
       const localCatalog = localStorage.getItem('turtle_product_catalog');
-      if (localCatalog) {
-        productCatalog = JSON.parse(localCatalog);
-      }
+      if (localCatalog) productCatalog = JSON.parse(localCatalog);
 
       const localRTC = localStorage.getItem('turtle_rtc_items');
       if (localRTC) {
@@ -188,8 +182,6 @@
         updateDashboardStats(rawRTCItems);
         renderAllTabs(rawRTCItems);
       }
-
-      // แอบดึงข้อมูลล่าสุดจาก Google Sheets ในฉากหลัง
       syncAllData(false);
     }
 
@@ -200,7 +192,6 @@
       btn.disabled = true;
 
       try {
-        // 1. ดึงไฟล์สินค้าหลัก 10,000+ รายการ
         const resProducts = await fetch(`${GAS_WEB_APP_URL}?action=getProducts`);
         const dataProducts = await resProducts.json();
         if (dataProducts.status === "success") {
@@ -208,7 +199,6 @@
           localStorage.setItem('turtle_product_catalog', JSON.stringify(productCatalog));
         }
 
-        // 2. ดึงรายการ RTC ล่าสุด
         const resRTC = await fetch(`${GAS_WEB_APP_URL}?action=getRTCList`);
         const dataRTC = await resRTC.json();
         if (dataRTC.status === "success") {
@@ -241,7 +231,6 @@
           name: productCatalog[barcode].name,
           price: productCatalog[barcode].price
         };
-
         document.getElementById('rtc-name-disp').innerText = currentProduct.name;
         document.getElementById('rtc-price-disp').innerText = currentProduct.price;
         playBeep(800);
@@ -288,7 +277,6 @@
       }
     }
 
-    // บันทึก RTC แบบ Instant (0 วินาที)
     async function handleSaveRTC() {
       if(!currentProduct) return alert("กรุณาดึงข้อมูลสินค้าก่อน");
       const expiryDate = document.getElementById('rtc-expiry').value;
@@ -297,7 +285,6 @@
       if(!expiryDate) return alert("กรุณาระบุวันหมดอายุ");
       if(quantity < 1) return alert("กรุณาระบุจำนวนสินค้าอย่างน้อย 1 ชิ้น");
 
-      // 1. อัปเดตข้อมูลบนหน้าจอและ LocalStorage ทันที (0 วินาที!)
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const expDate = new Date(expiryDate);
@@ -320,6 +307,7 @@
       let existingIndex = rawRTCItems.findIndex(i => String(i.barcode) === String(currentProduct.barcode) && i.expiryDate === expiryDate);
       if (existingIndex !== -1) {
         rawRTCItems[existingIndex].quantity += quantity;
+        rawRTCItems[existingIndex].isDone = false; // รีเซ็ตสถานะเมื่อเพิ่มจำนวน
       } else {
         const newItem = {
           id: "rtc_" + new Date().getTime(),
@@ -330,7 +318,8 @@
           expiryDate: expiryDate,
           daysLeft: diffDays,
           status: status,
-          actionNeeded: actionNeeded
+          actionNeeded: actionNeeded,
+          isDone: false
         };
         rawRTCItems.push(newItem);
       }
@@ -346,7 +335,6 @@
       const savedName = currentProduct.name;
       const savedPrice = currentProduct.price;
 
-      // Reset ฟอร์ม
       document.getElementById('rtc-expiry').value = '';
       document.getElementById('rtc-qty').value = '1';
       document.getElementById('rtc-barcode').value = '';
@@ -355,7 +343,6 @@
       currentProduct = null;
       document.getElementById('rtc-barcode').focus();
 
-      // 2. ส่งข้อมูลไป Google Apps Script ฉากหลัง
       const payload = {
         action: "addRTC",
         barcode: savedBarcode,
@@ -385,24 +372,38 @@
     function renderAllTabs(items) {
       const tbody = document.getElementById('rtc-table-body');
       tbody.innerHTML = items.length === 0 ? '<tr><td colspan="6" class="p-4 text-center text-slate-500">ไม่พบรายการข้อมูล</td></tr>' : items.map(i => `
-        <tr class="border-b">
+        <tr class="border-b ${i.isDone ? 'bg-emerald-50/50' : ''}">
           <td class="p-2 border">${i.barcode}</td>
-          <td class="p-2 border">${i.name}</td>
+          <td class="p-2 border ${i.isDone ? 'line-through text-slate-400' : ''}">${i.name}</td>
           <td class="p-2 border text-center font-semibold text-blue-600">${i.quantity}</td>
           <td class="p-2 border">${i.expiryDate}</td>
           <td class="p-2 border font-bold ${i.daysLeft < 0 ? 'text-red-600' : ''}">${i.daysLeft} วัน</td>
-          <td class="p-2 border"><span class="px-2 py-1 rounded text-xs text-white ${getStatusColor(i.status)}">${i.actionNeeded}</span></td>
+          <td class="p-2 border">
+            <div class="flex items-center justify-between gap-2">
+              <span class="px-2 py-1 rounded text-xs text-white ${getStatusColor(i.status)}">${i.actionNeeded}</span>
+              ${(i.status === 'RTC_30' || i.status === 'RTC_50') ? `
+                <button onclick="markRTCCompleted('${i.id}')" class="no-print text-xs px-2 py-1 rounded font-bold ${i.isDone ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}">
+                  ${i.isDone ? '✔️ ทำแล้ว' : '🏷️ กดทำ RTC'}
+                </button>
+              ` : ''}
+            </div>
+          </td>
         </tr>
       `).join('');
 
       const actionItems = items.filter(i => i.status === 'RTC_30' || i.status === 'RTC_50');
       document.getElementById('report-container').innerHTML = actionItems.length === 0 ? '<p class="text-slate-500">ไม่มีสินค้าต้องทำ RTC ในขณะนี้</p>' : actionItems.map(i => `
-        <div class="p-4 border rounded bg-amber-50 flex justify-between items-center">
+        <div class="p-4 border rounded ${i.isDone ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50'} flex justify-between items-center">
           <div>
-            <p class="font-bold text-lg">${i.name} (${i.barcode})</p>
+            <p class="font-bold text-lg ${i.isDone ? 'line-through text-slate-400' : ''}">${i.name} (${i.barcode})</p>
             <p class="text-sm text-slate-600">จำนวน: <span class="font-bold text-amber-800">${i.quantity}</span> ชิ้น | หมดอายุ: ${i.expiryDate} (เหลือ ${i.daysLeft} วัน)</p>
           </div>
-          <span class="px-3 py-1 font-bold rounded text-white ${getStatusColor(i.status)}">${i.actionNeeded}</span>
+          <div class="flex items-center gap-2">
+            <span class="px-3 py-1 font-bold rounded text-white ${getStatusColor(i.status)}">${i.actionNeeded}</span>
+            <button onclick="markRTCCompleted('${i.id}')" class="no-print text-xs px-3 py-1.5 rounded font-bold ${i.isDone ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-slate-800 text-white hover:bg-slate-900'}">
+              ${i.isDone ? '✔️ ทำแล้ว (คลิกยกเลิก)' : '🏷️ ทำ RTC แล้ว'}
+            </button>
+          </div>
         </div>
       `).join('');
 
@@ -416,6 +417,25 @@
           <button onclick="deleteRTCItem('${i.id}')" class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 no-print">ลบออกจากระบบ</button>
         </div>
       `).join('');
+    }
+
+    async function markRTCCompleted(id) {
+      const item = rawRTCItems.find(i => i.id === id);
+      if (!item) return;
+
+      item.isDone = !item.isDone;
+      localStorage.setItem('turtle_rtc_items', JSON.stringify(rawRTCItems));
+      renderAllTabs(rawRTCItems);
+      playBeep(item.isDone ? 1000 : 500);
+
+      try {
+        await fetch(GAS_WEB_APP_URL, { 
+          method: "POST", 
+          body: JSON.stringify({ action: "markRTCDone", id: id, isDone: item.isDone }) 
+        });
+      } catch(err) {
+        console.error("Mark RTC sync failed:", err);
+      }
     }
 
     function filterRTCData() {
@@ -470,7 +490,6 @@
 
     document.addEventListener('DOMContentLoaded', () => {
       initAllData();
-
       document.getElementById('rtc-barcode').addEventListener('keypress', function(e) {
         if (e.key === 'Enter') {
           e.preventDefault();
